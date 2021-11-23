@@ -1,8 +1,6 @@
 ---
 title: "Basic Causal Effect"
-output:
-  html_document:
-    df_print: paged
+output: html_notebook
 ---
 
 ```{r}
@@ -175,6 +173,7 @@ p3 <- Diff.Means.Crop %>%
 
 multiplot(p1,p2,p3, cols=3)
 ```
+
 ### Neymanian Inference for ATE
 
 #### By Crop Type
