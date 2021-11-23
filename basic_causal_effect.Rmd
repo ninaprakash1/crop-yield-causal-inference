@@ -1,0 +1,324 @@
+---
+title: "Basic Causal Effect"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(forcats)
+```
+
+```{r}
+# Multiple plot function
+#
+# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
+# - cols:   Number of columns in layout
+# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
+#
+# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
+# then plot 1 will go in the upper left, 2 will go in the upper right, and
+# 3 will go all the way across the bottom.
+#
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+
+
+# Reading & Pre-processing Data
+```{r}
+data<-read.csv("Database.csv")
+
+#add all columns to convert to factors/numeric
+to_factor_cols <- c("Crop")
+to_numeric_cols <- c("Yield.of.CT", "Yield.of.NT")
+data[to_factor_cols] <- lapply(data[to_factor_cols], factor)
+data[to_numeric_cols] <- lapply(data[to_numeric_cols], as.numeric)
+```
+
+
+```{r}
+data$Yield.Diff = data$Yield.of.NT -  data$Yield.of.CT
+data$log.Yield.Ratio = log(data$Yield.of.NT) -  log(data$Yield.of.CT)
+```
+
+
+## Determining Estimand of Interest 
+
+Given that this data is comprised of paired observations from hundreds of studies of different crop types in different locations, years, and conditions, the magnitudes of the values in individual pairs vary significantly, and thus we would not expect a constant additive treatment effect if we fit over all the data.
+As illustrated below, there is clearly a linear relationship between $Y(0)$ and $Y(1)$, and if $Y(1) = aY(0) + b$, then $Y(1) - Y(0)  = (a-1)Y(0) + b$ and thus the effect is clearly not constant since it depends on $Y(0)$.
+
+```{r}
+ggplot(data, aes(x=Yield.of.CT, y=Yield.of.NT, color = Crop))+
+  geom_point(shape = 1) 
+
+```
+Given that the yields of different crops are in different units, (e.g., kg/ha of maize is fundamentally different than a kg/ha of wheat), and the clearly different magnitudes in yields for different crop types shown above, it seems plausible that this linear relationship is due mostly to crop type. However, as shown below the linear relationship is strong within each crop strata (also super weird sunflower we may have to deal with at some point): 
+
+```{r}
+
+ggplot(data, aes(x=Yield.of.CT, y=Yield.of.NT))+
+  geom_point(shape = 1) +
+  facet_wrap(~Crop,ncol = 5,  scales = "free")+ 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+If this linear relationship holds, than we would expect a multiplicative treatment effect, and thus log transformation of the ratio will yield a constant additive treatment effect (see Imbens p. 65): 
+
+$$\log \frac{Y(1)}{Y(0)} =  \log Y(1) - \log Y(0) \sim \log(a) + \log Y(0) - \log Y(0) = log(a) $$
+Examining the plots below, we see that this linear relationship no longer holds over the whole dataset or within crops, although we do note that (1) the funnel shaped in both plots indicate that the variance of this estimator is larger for smaller magnitudes of CT and (2) from manitude of the ratios are still quite different for different crop types, so even using this estimator, it would be better to conduct a paired randomized experiment within each strata, and then combine them if we wish. 
+```{r}
+
+data %>%
+  ggplot( aes(x=Yield.of.CT, y=log.Yield.Ratio, color = Crop))+
+  geom_point(shape = 1, alpha = .5)
+
+data %>%
+  ggplot( aes(x=Yield.of.CT, y=log.Yield.Ratio))+
+  geom_point(shape = 1)+
+  facet_wrap(~Crop,ncol = 5,  scales = "free")
+```
+Thus, our estimator is is the log ratio of the treated to the untreated: $\tau = E[log \frac{Y(1)}{Y(0)}] = E[log Y(1) - log Y(0)]  $
+
+As a sanity check, we will also examine the standard difference in means estimator $E[Y(1) - Y(0)]$ as well as the percent yield difference given by $\frac{E[Y(1) - Y(0)]}{EY(0)}$ (need to figure out how to compute the variance for the latter)
+
+# Paired Randomization Test (Basic)
+
+We first conduct some basic paired randomization tests: stratification by crop type, no covariate Adjustment
+
+
+## Difference In Means Estimators 
+
+### Compute Estimators
+
+```{r}
+(Diff.Means.Crop <- data %>% group_by(Crop) %>%
+  summarise(n = n(), 
+            Mean.Yield.Diff = mean(Yield.Diff), 
+            Mean.Yield.CT = mean(Yield.of.CT), 
+#            Perc.Yield.Change = mean(Yield.Diff)/mean(Yield.of.CT),
+            Mean.Log.Yield.Ratio = mean(log.Yield.Ratio)))
+```
+We see that for the Log Ratio Estimator, treatment effect is negative for 6/9 crops, but the magnitude of the effect is larger for the 3 with a positive effect. Note that we show $e^\tau - 1$ since this centers the plot at the no-effect of ratio = 1. 
+```{r}
+Diff.Means.Crop %>%
+  mutate(name = fct_reorder(Crop, desc(Mean.Log.Yield.Ratio))) %>%
+  ggplot( aes(x=name, y= exp(Mean.Log.Yield.Ratio)-1)) +
+  geom_bar(stat="identity", fill="purple", alpha=.6, width=.4) +
+  coord_flip() +
+  xlab("")
+
+```
+
+Standard Difference in Means estimator with and without scaling by the average control shows the same sign of effect (obviously), but different ordering from the above estimator and from each other. 
+```{r}
+
+p1 <- Diff.Means.Crop %>%
+  ggplot( aes(x=Crop, y=Mean.Yield.Diff)) +
+  geom_bar(stat="identity", fill="blue", alpha=.6, width=.4) +
+  coord_flip() +
+  xlab("") 
+
+p2 <-  Diff.Means.Crop %>% 
+  ggplot( aes(x=Crop, y=Mean.Yield.Diff/Mean.Yield.CT)) +
+  geom_bar(stat="identity", fill="blue", alpha=.6, width=.4) +
+  coord_flip() +
+  xlab("") + 
+  theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+p3 <- Diff.Means.Crop %>%
+  ggplot( aes(x=Crop, y= exp(Mean.Log.Yield.Ratio)-1)) +
+  geom_bar(stat="identity", fill="purple", alpha=.6, width=.4) +
+  coord_flip() +
+  xlab("") + 
+  theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+multiplot(p1,p2,p3, cols=3)
+```
+### Neymanian Inference for ATE
+
+#### By Crop Type
+First, we use Neymanian inference to get a conservative estimate of variance. 
+
+```{r}
+(Var.Neyman.Crop <- data %>% group_by(Crop) %>%
+   dplyr::summarise(
+            Mean.Yield.Diff = mean(Yield.Diff), 
+#            Mean.Yield.CT = mean(Yield.of.CT), 
+            Mean.Log.Yield.Ratio = mean(log.Yield.Ratio), 
+            Var.Yield.Diff = var(Yield.Diff)/(n()-1), 
+ #           Var.Yield.CT = var(Yield.of.CT)/n(), 
+            Var.Log.Yield.Ratio = var(log.Yield.Ratio)/(n()-1),
+            n = n()))
+
+```
+
+We get fairly large variances, which is likely due to heterogeneous treatment effects, which makes the estimate very conservative (see notes on paired randomized design). 
+
+Now computing 95% confidence intervals: 
+
+```{r}
+Var.Neyman.Crop <- Var.Neyman.Crop %>% 
+  mutate(CI.L.Diff  = Mean.Yield.Diff - qnorm(.975)*sqrt(Var.Yield.Diff), 
+                      CI.U.Diff  = Mean.Yield.Diff + qnorm(.975)*sqrt(Var.Yield.Diff), 
+                      CI.L.Ratio  = Mean.Log.Yield.Ratio - qnorm(.975)*sqrt(Var.Log.Yield.Ratio), 
+                      CI.U.Ratio  = Mean.Log.Yield.Ratio + qnorm(.975)*sqrt(Var.Log.Yield.Ratio))
+```
+
+
+```{r}
+p1<- ggplot(Var.Neyman.Crop, aes(x=Crop, y=Mean.Yield.Diff)) +
+  geom_point( size = 3, color = 'blue') +
+  geom_errorbar(aes(ymax = CI.U.Diff, ymin = CI.L.Diff), color = 'blue', alpha = .8) +
+  coord_flip() +
+  xlab("")
+
+p1 + geom_hline(yintercept= 0, color= 'black', linetype = 'dashed', alpha = .8) + 
+  ggtitle("95% CI for Diff in Means")
+
+
+p2<- ggplot(Var.Neyman.Crop, aes(x=Crop, y=Mean.Log.Yield.Ratio)) +
+  geom_point( size = 3, color = 'purple') +
+  geom_errorbar(aes(ymax = CI.U.Ratio, ymin = CI.L.Ratio), color = 'purple', alpha = .8) +
+  coord_flip() +
+  xlab("")
+
+p2 + geom_hline(yintercept= 0, color= 'black', linetype = 'dashed', alpha = .8) + 
+    ggtitle("95% CI for Log Ratio")
+
+```
+#### Overall effect with weighted mean over crop strata
+Treating each crop as a strata, we can also compute the ATE over all strata: which shows negative causal effect at 95% Confidence level for log ratio,but not at this level for diff in means. 
+
+```{r}
+n_total <- sum(Var.Neyman.Crop$n)
+(tau_ate <- sum(Var.Neyman.Crop$Mean.Yield.Diff * Var.Neyman.Crop$n/n_total))
+(tau_ate_log_ratio <- sum(Var.Neyman.Crop$Mean.Log.Yield.Ratio* Var.Neyman.Crop$n/n_total))
+var_ate <- sum(Var.Neyman.Crop$Var.Yield.Diff * (Var.Neyman.Crop$n/n_total)**2)
+var_ate_log_ratio <- sum(Var.Neyman.Crop$Var.Log.Yield.Ratio* (Var.Neyman.Crop$n/n_total)**2)
+
+(CI_ate <- c(tau_ate - qnorm(.975)*var_ate, tau_ate + qnorm(.975)*var_ate))
+(CI_ate_log_ratio <- c(tau_ate_log_ratio - qnorm(.975)*var_ate_log_ratio, tau_ate_log_ratio + qnorm(.975)*var_ate_log_ratio))
+```
+
+
+
+### FRT
+
+```{r}
+generate_diff_test_stat <- function(diff_vec, Z = NULL) {
+   if (is.null(Z)) {
+     Z <- rbinom(length(diff_vec),1,.5)
+   }
+   tau_hat <- mean((Z*2-1)*diff_vec)
+   return (tau_hat)
+}
+```
+
+```{r}
+compute_p_value_mc <- function(f, diff_vec, n_draws = 1000, seed = 42) {
+  set.seed(seed)
+  T_sampled <- replicate(n = n_draws, expr = f(diff_vec), simplify = TRUE)
+  # hist(T_sampled_vec)
+  # abline(v = T_obs, lwd = 3, col = "blue", lty = 2)
+  T_obs <- f(diff_vec, Z = rep(1, length(diff_vec)))
+  if (T_obs < mean(T_sampled)) {
+     p_val <- (sum(T_sampled == T_obs)/2 + sum(T_sampled < T_obs))/n_draws
+  } else {
+     p_val <- (sum(T_sampled == T_obs)/2 + sum(T_sampled > T_obs))/n_draws
+  }
+ 
+  return(p_val)
+  
+}
+```
+
+
+#### FRT for Diff Means 
+
+##### Monte Carlo Estimate
+
+TODO: run for all crop types and get p-vals
+```{r}
+crop.msk = data$Crop == 'sorghum'
+compute_p_value_mc(f = generate_diff_test_stat, 
+                   diff_vec = data$Yield.Diff[crop.msk], 
+                   n_draws = 10000, 
+                   seed = 100)
+
+compute_p_value_mc(f = generate_diff_test_stat, 
+                   diff_vec = data$log.Yield.Ratio[crop.msk], 
+                   n_draws = 10000, 
+                   seed = 100)
+```
+
+
+##### Finite sample CLT
+
+TODO: run for all crop types and get p-vals and CI's
+
+```{r}
+#under finite sample CLT 
+crop.msk = data$Crop == 'sunflower'
+# t.test(x = data$Yield.of.NT[crop.msk], 
+#        y= data$Yield.of.CT[crop.msk], 
+#        paired = TRUE)
+
+t.test(x = data$log.Yield.Ratio[crop.msk], mu = 0,
+       paired =FALSE)
+
+t.test(x = log(data$Yield.of.NT)[crop.msk], y= log(data$Yield.of.CT)[crop.msk],
+       paired =TRUE)
+
+```
+
+#### FRT Rank Statistics 
+
+##### Monte Carlo Estimates
+
+TODO: write function to compute T_rank and T_diff as described in Imbens p.223
+run for all crop types and get p-vals and CI's (can pass the function to `compute_p_value_mc()` )
+
+
+TODO: run for all crop types and get p-vals
+
