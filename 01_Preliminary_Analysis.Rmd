@@ -1,0 +1,72 @@
+---
+title: "01_Preliminary_Analysis"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preliminary Analysis
+Run an FRT to understand the causal effect of No Tillage (NT / treatment) vs. Conventional Tillage (CT / control) on crop yield, stratified by crop type, using difference-in-means as the estimator.
+
+## Load dataset
+```{r load_data}
+data <- read.csv('data/Database.csv')
+```
+
+## Get list of unique crop types in the dataset
+```{r all_crop_types}
+crop_types = sort(unique(data$Crop))
+```
+
+## Define function to run an FRT
+```{r def_FRT}
+runFRT <- function(crop, n_iters) {
+  
+  # @param  crop      String-formatted name of crop from Crop column
+  # @param  n_iters   Number of iterations to use for Fisher Randomization Test (FRT)
+  # @return           P-value resulting from running FRT with n_iters iterations
+  #                     using NT as treatment and CT as control
+  
+  cat('Running FRT for ',crop, '...')
+  crop_subset = subset(data, Crop==crop)
+  T_obs = mean(crop_subset$Yield.of.NT) - mean(crop_subset$Yield.of.CT)
+  cat('\n\tT_obs: ', T_obs)
+  
+  T_FRT = vector(length=n_iters)
+  for (i in 1:n_iters) {
+    Z = sample(c(0,1),size=length(crop_subset),replace=TRUE) # PERMUTE RANDOMLY
+    T_i = mean(c(crop_subset$Yield.of.NT[Z==1], crop_subset$Yield.of.CT[Z==0])) - 
+        mean(c(crop_subset$Yield.of.NT[Z==0], crop_subset$Yield.of.CT[Z==1]))
+    T_FRT[i] = T_i
+  }
+  
+  p_val = sum(T_FRT > T_obs) / length(T_FRT)
+  cat('\n\tp-value: ', p_val, '\n')
+  
+  return (p_val)
+  
+}
+```
+
+## Run FRT for all crop types
+```{r all_crop_FRTs}
+
+# Generate a vector of p-values in the same order as crop_types
+
+set.seed(42)
+p_values = vector(length = length(crop_types))
+n_iters = 10000
+
+for (i in 1:length(crop_types)) {
+  p_val = runFRT(crop_types[i], n_iters)
+  p_values[i] = p_val
+}
+
+```
+
+```{r}
+runFRT('wheat.winter', 10000)
+```
+
