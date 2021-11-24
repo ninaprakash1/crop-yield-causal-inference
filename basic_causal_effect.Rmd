@@ -61,7 +61,7 @@ multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
 
 # Reading & Pre-processing Data
 ```{r}
-data<-read.csv("Database.csv")
+data<-read.csv("data/Database.csv")
 
 #add all columns to convert to factors/numeric
 to_factor_cols <- c("Crop")
@@ -272,42 +272,106 @@ compute_p_value_mc <- function(f, diff_vec, n_draws = 1000, seed = 42) {
 }
 ```
 
-
 #### FRT for Diff Means 
 
 ##### Monte Carlo Estimate
 
-TODO: run for all crop types and get p-vals
 ```{r}
-crop.msk = data$Crop == 'sorghum'
-compute_p_value_mc(f = generate_diff_test_stat, 
-                   diff_vec = data$Yield.Diff[crop.msk], 
-                   n_draws = 10000, 
-                   seed = 100)
+# crop.msk = data$Crop == 'sorghum'
+# compute_p_value_mc(f = generate_diff_test_stat, 
+#                    diff_vec = data$Yield.Diff[crop.msk], 
+#                    n_draws = 10000, 
+#                    seed = 100)
+# 
+# compute_p_value_mc(f = generate_diff_test_stat, 
+#                    diff_vec = data$log.Yield.Ratio[crop.msk], 
+#                    n_draws = 10000, 
+#                    seed = 100)
 
-compute_p_value_mc(f = generate_diff_test_stat, 
-                   diff_vec = data$log.Yield.Ratio[crop.msk], 
-                   n_draws = 10000, 
-                   seed = 100)
+crop_types = sort(unique(data$Crop))
+
+set.seed(42)
+p_values_log_ratio = vector(length = length(crop_types))
+p_values_diff_mean = vector(length = length(crop_types))
+n_iters = 10000
+
+for (i in 1:length(crop_types)) {
+  # cat('\nRunning FRT for ',crop_types[i], '...')
+  crop.msk = data$Crop == crop_types[i]
+  p_val_lr = compute_p_value_mc(f = generate_diff_test_stat,
+                             diff_vec = data$log.Yield.Ratio[crop.msk],
+                             n_draw = 10000,
+                             seed = 100)
+  p_values_log_ratio[i] = p_val_lr
+  # cat('\n\tp_value for log ratio: ', p_val_lr)
+  
+  p_val_dm = compute_p_value_mc(f = generate_diff_test_stat,
+                             diff_vec = data$Yield.Diff[crop.msk],
+                             n_draw = 10000,
+                             seed = 100)
+  p_values_diff_mean[i] = p_val_dm
+  # cat('\n\tp_value for diff means: ', p_val_dm)
+}
+
+FRT_results = data.frame(crop_types, p_values_log_ratio, p_values_diff_mean)
+colnames(FRT_results) = c("crop", "p_val_log_ratio", "p_val_diff_mean")
+(FRT_results)
+
 ```
 
 
 ##### Finite sample CLT
 
-TODO: run for all crop types and get p-vals and CI's
-
 ```{r}
-#under finite sample CLT 
-crop.msk = data$Crop == 'sunflower'
-# t.test(x = data$Yield.of.NT[crop.msk], 
-#        y= data$Yield.of.CT[crop.msk], 
-#        paired = TRUE)
+# #under finite sample CLT 
+# crop.msk = data$Crop == 'sunflower'
+# # t.test(x = data$Yield.of.NT[crop.msk], 
+# #        y= data$Yield.of.CT[crop.msk], 
+# #        paired = TRUE)
+# 
+# t.test(x = data$log.Yield.Ratio[crop.msk], mu = 0,
+#        paired =FALSE)
+# 
+# t.test(x = log(data$Yield.of.NT)[crop.msk], y= log(data$Yield.of.CT)[crop.msk],
+#        paired =TRUE)
 
-t.test(x = data$log.Yield.Ratio[crop.msk], mu = 0,
-       paired =FALSE)
+# Generate vectors of t-test results in the same order as crop_types
 
-t.test(x = log(data$Yield.of.NT)[crop.msk], y= log(data$Yield.of.CT)[crop.msk],
-       paired =TRUE)
+set.seed(42)
+
+C = length(crop_types)
+
+diff_in_yield_tau = vector(length=C)
+diff_in_yield_p_vals = vector(length=C)
+diff_in_yield_CI_lower = vector(length=C)
+diff_in_yield_CI_upper = vector(length=C)
+
+yield_ratio_tau = vector(length=C)
+yield_ratio_p_vals = vector(length=C)
+yield_ratio_CI_lower = vector(length=C)
+yield_ratio_CI_upper = vector(length=C)
+
+for (i in 1:length(crop_types)) {
+    crop.msk = data$Crop == crop_types[i]
+  
+    yield_ratio_results = t.test(x = data$log.Yield.Ratio[crop.msk], mu = 0,
+         paired =FALSE)
+    yield_ratio_tau[i] = yield_ratio_results[[1]]
+    yield_ratio_p_vals[i] = yield_ratio_results[[3]]
+    yield_ratio_CI_lower[i] = yield_ratio_results[[4]][1]
+    yield_ratio_CI_upper[i] = yield_ratio_results[[4]][2]
+  
+    diff_in_yield_results = t.test(x = log(data$Yield.of.NT)[crop.msk], y= log(data$Yield.of.CT)[crop.msk],
+         paired =TRUE)
+    diff_in_yield_tau[i] = diff_in_yield_results[[1]]
+    diff_in_yield_p_vals[i] = diff_in_yield_results[[3]]
+    diff_in_yield_CI_lower[i] = diff_in_yield_results[[4]][1]
+    diff_in_yield_CI_upper[i] = diff_in_yield_results[[4]][2]
+}
+
+CLT_results = data.frame(crop_types, diff_in_yield_tau, diff_in_yield_p_vals, diff_in_yield_CI_lower, diff_in_yield_CI_upper)
+colnames(CLT_results) = c("crop","tau_CLT", "p_val", "CI_lower","CI_upper")
+(CLT_results)
 
 ```
 
