@@ -70,7 +70,6 @@ data[to_factor_cols] <- lapply(data[to_factor_cols], factor)
 data[to_numeric_cols] <- lapply(data[to_numeric_cols], as.numeric)
 ```
 
-
 ```{r}
 data$Yield.Diff = data$Yield.of.NT -  data$Yield.of.CT
 data$log.Yield.Ratio = log(data$Yield.of.NT) -  log(data$Yield.of.CT)
@@ -272,108 +271,106 @@ compute_p_value_mc <- function(f, diff_vec, n_draws = 1000, seed = 42) {
 }
 ```
 
-#### FRT for Diff Means 
+#### FRT for Diff Means and Log Ratio
 
 ##### Monte Carlo Estimate
 
 ```{r}
-# crop.msk = data$Crop == 'sorghum'
-# compute_p_value_mc(f = generate_diff_test_stat, 
-#                    diff_vec = data$Yield.Diff[crop.msk], 
-#                    n_draws = 10000, 
-#                    seed = 100)
-# 
-# compute_p_value_mc(f = generate_diff_test_stat, 
-#                    diff_vec = data$log.Yield.Ratio[crop.msk], 
-#                    n_draws = 10000, 
-#                    seed = 100)
 
-crop_types = sort(unique(data$Crop))
-
-set.seed(42)
-p_values_log_ratio = vector(length = length(crop_types))
-p_values_diff_mean = vector(length = length(crop_types))
-n_iters = 10000
-
-for (i in 1:length(crop_types)) {
-  # cat('\nRunning FRT for ',crop_types[i], '...')
-  crop.msk = data$Crop == crop_types[i]
-  p_val_lr = compute_p_value_mc(f = generate_diff_test_stat,
-                             diff_vec = data$log.Yield.Ratio[crop.msk],
-                             n_draw = 10000,
-                             seed = 100)
-  p_values_log_ratio[i] = p_val_lr
-  # cat('\n\tp_value for log ratio: ', p_val_lr)
+runFRT_each_strata <- function(data, covariate, n_draw, seed) {
+  # @desc               Run FRT using diff-in-means and log yield ratio
+  #                     test statistics.
+  # @param  data        Full data to stratify on
+  # @param  covariate   Name of covariate variable
+  # @param  n_draw      Number of iterations for FRT
+  # @param  seed        Seed for randomization
+  # @return             Data frame of p-values for each covariate value for each
+  #                     test statistic.
   
-  p_val_dm = compute_p_value_mc(f = generate_diff_test_stat,
-                             diff_vec = data$Yield.Diff[crop.msk],
-                             n_draw = 10000,
-                             seed = 100)
-  p_values_diff_mean[i] = p_val_dm
-  # cat('\n\tp_value for diff means: ', p_val_dm)
-}
+  cov_vals = sort(unique(data[[covariate]]))
+  
+  C = length(cov_vals)
+  
+  P.Value.Mean.Yield.Diff = vector(length = C)
+  P.Value.Log.Yield.Ratio = vector(length = C)
+  
+  for (i in 1:C) {
+    # Get strata
+    mask = data[[covariate]] == cov_vals[i]
+    
+    # Compute p-value for diff-in-means
+    p_val_dm = compute_p_value_mc(f = generate_diff_test_stat,
+                               diff_vec = data$Yield.Diff[mask],
+                               n_draw = n_draw,
+                               seed = seed)
+    P.Value.Mean.Yield.Diff[i] = p_val_dm
 
-FRT_results = data.frame(crop_types, p_values_log_ratio, p_values_diff_mean)
-colnames(FRT_results) = c("crop", "p_val_log_ratio", "p_val_diff_mean")
-(FRT_results)
+    # Compute p-value for log ratio
+    p_val_lr = compute_p_value_mc(f = generate_diff_test_stat,
+                           diff_vec = data$log.Yield.Ratio[mask],
+                           n_draw = n_draw,
+                           seed = seed)
+    P.Value.Log.Yield.Ratio[i] = p_val_lr
+  }
+  
+  return (data.frame(cov_vals, P.Value.Mean.Yield.Diff, P.Value.Log.Yield.Ratio))
+
+}
 
 ```
 
+```{r}
+(FRT_results = runFRT_each_strata(data, 'Crop',10000,100))
+```
 
 ##### Finite sample CLT
 
 ```{r}
-# #under finite sample CLT 
-# crop.msk = data$Crop == 'sunflower'
-# # t.test(x = data$Yield.of.NT[crop.msk], 
-# #        y= data$Yield.of.CT[crop.msk], 
-# #        paired = TRUE)
-# 
-# t.test(x = data$log.Yield.Ratio[crop.msk], mu = 0,
-#        paired =FALSE)
-# 
-# t.test(x = log(data$Yield.of.NT)[crop.msk], y= log(data$Yield.of.CT)[crop.msk],
-#        paired =TRUE)
 
-# Generate vectors of t-test results in the same order as crop_types
-
-set.seed(42)
-
-C = length(crop_types)
-
-diff_in_yield_tau = vector(length=C)
-diff_in_yield_p_vals = vector(length=C)
-diff_in_yield_CI_lower = vector(length=C)
-diff_in_yield_CI_upper = vector(length=C)
-
-yield_ratio_tau = vector(length=C)
-yield_ratio_p_vals = vector(length=C)
-yield_ratio_CI_lower = vector(length=C)
-yield_ratio_CI_upper = vector(length=C)
-
-for (i in 1:length(crop_types)) {
-    crop.msk = data$Crop == crop_types[i]
+compute_CLT_estimator <- function(data, covariate, seed) {
+  # @desc                 Get estimator using finite-sample CLT (t-test)
+  # @param    data        Dataset to subset from
+  # @param    covariate   Name of covariate variable to stratify on
+  # @param    seed        Random seed
+  # @return               Vectors of tau, p_vals, and CI bounds for each covariate value
   
-    yield_ratio_results = t.test(x = data$log.Yield.Ratio[crop.msk], mu = 0,
-         paired =FALSE)
-    yield_ratio_tau[i] = yield_ratio_results[[1]]
-    yield_ratio_p_vals[i] = yield_ratio_results[[3]]
-    yield_ratio_CI_lower[i] = yield_ratio_results[[4]][1]
-    yield_ratio_CI_upper[i] = yield_ratio_results[[4]][2]
+  cov_vals = sort(unique(data[[covariate]]))
+  C = length(cov_vals)
   
-    diff_in_yield_results = t.test(x = log(data$Yield.of.NT)[crop.msk], y= log(data$Yield.of.CT)[crop.msk],
-         paired =TRUE)
-    diff_in_yield_tau[i] = diff_in_yield_results[[1]]
-    diff_in_yield_p_vals[i] = diff_in_yield_results[[3]]
-    diff_in_yield_CI_lower[i] = diff_in_yield_results[[4]][1]
-    diff_in_yield_CI_upper[i] = diff_in_yield_results[[4]][2]
+  Tau.CLT = vector(length=C)
+  P.Value.CLT = vector(length=C)
+  CI.L.CLT = vector(length=C)
+  CI.U.CLT = vector(length=C)
+  
+  for (i in 1:C) {
+    mask = data[[covariate]] == cov_vals[i]
+  
+    results = t.test(x = data$log.Yield.Ratio[mask], mu=0, paired=FALSE)
+    
+    # results = t.test(x = log(data$Yield.of.NT)[mask],
+    #                  y= log(data$Yield.of.CT)[mask],
+    #                  paired =TRUE)
+    
+    Tau.CLT[i] = results[[1]]
+    P.Value.CLT[i] = results[[3]]
+    CI.L.CLT[i] = results[[4]][1]
+    CI.U.CLT[i] = results[[4]][2]
+  }
+
+  return (data.frame(cov_vals, Tau.CLT, P.Value.CLT, CI.L.CLT, CI.U.CLT))
+  
 }
 
-CLT_results = data.frame(crop_types, diff_in_yield_tau, diff_in_yield_p_vals, diff_in_yield_CI_lower, diff_in_yield_CI_upper)
-colnames(CLT_results) = c("crop","tau_CLT", "p_val", "CI_lower","CI_upper")
-(CLT_results)
-
 ```
+
+```{r}
+(CLT_results = compute_CLT_estimator(data,'Crop',42))
+```
+```{r}
+data_subset = subset(data,Crop=='wheat.winter')
+CLT_results = compute_CLT_estimator(data_subset,'Location',100)
+```
+
 
 #### FRT Rank Statistics 
 
@@ -384,4 +381,107 @@ run for all crop types and get p-vals and CI's (can pass the function to `comput
 
 
 TODO: run for all crop types and get p-vals
+
+### Automation
+
+Wrote functions to automate the process of getting basic causal estimators and confidence intervals given a crop type and another covariate to stratify on. Saves results as .csv file for each result labeled with crop type and covariate value. Assuming that we will continue to report results on a per-crop basis so that the difference-in-means estimator is still valid. Also ignoring the E[Y(1) - Y(0)]/E[Y(0)] estimator for now. This function also assumes that the data has already been loaded pre-processed as above to include a column for difference in yield and log yield ratio. 
+
+```{r}
+get_basic_causal_results <- function(crop, covariate, n_draw=10000, seed=100) {
+  # @param  crop       Crop name
+  # @param  covariate  Name of covariate variable to stratify on
+  # @param  n_draw     Number of iterations for FRT
+  # @param  seed       Random seed for FRT
+  
+  # 1. Get subset of data for crop
+  data_subset = subset(data, Crop==crop)
+
+  # 2. Get unique covariate values
+  cov_vals = sort(unique(data_subset[[covariate]]))
+  
+  # 3. Get within-strata results, for each covariate value
+  #         Diff-in-means: estimate, variance, 95% CI, and p-value
+  #         Log yield ratio: estimate, variance, 95% CI, and p-value
+  #         Estimator using CLT, its p-value, and its 95% CI
+  Within.Strata.Results <- data_subset %>% group_by(.data[[covariate]]) %>%
+   dplyr::summarise(
+            Mean.Yield.Diff = mean(Yield.Diff),
+            Mean.Log.Yield.Ratio = mean(log.Yield.Ratio),
+            Var.Yield.Diff = var(Yield.Diff)/(n()-1),
+            Var.Log.Yield.Ratio = var(log.Yield.Ratio)/(n()-1),
+            n = n()) %>%
+    
+    mutate(CI.L.Diff  = Mean.Yield.Diff - qnorm(.975)*sqrt(Var.Yield.Diff), 
+           CI.U.Diff  = Mean.Yield.Diff + qnorm(.975)*sqrt(Var.Yield.Diff), 
+           CI.L.Ratio  = Mean.Log.Yield.Ratio - qnorm(.975)*sqrt(Var.Log.Yield.Ratio), 
+           CI.U.Ratio  = Mean.Log.Yield.Ratio + qnorm(.975)*sqrt(Var.Log.Yield.Ratio))
+  
+  FRT_results = runFRT_each_strata(data_subset,covariate,n_draw,seed)
+  Within.Strata.Results['P.Value.Mean.Yield.Diff'] = FRT_results['P.Value.Mean.Yield.Diff']
+  Within.Strata.Results['P.Value.Log.Yield.Ratio'] = FRT_results['P.Value.Log.Yield.Ratio']
+  
+  # TODO - getting errors too few x observations when stratify further
+  # CLT_results = compute_CLT_estimator(data_subset,covariate,seed)
+  # Within.Strata.Results['Tau.CLT'] = CLT_results['Tau.CLT']
+  # Within.Strata.Results['P.Value.CLT'] = CLT_results['P.Value.CLT']
+  # Within.Strata.Results['CI.L.CLT'] = CLT_results['CI.L.CLT']
+  # Within.Strata.Results['CI.U.CLT'] = CLT_results['CI.U.CLT']
+    
+  # 4. Get estimator across strata
+  #         ATE, variance of ATE, and 95% CI for ATE
+  n_total <- sum(Within.Strata.Results$n)
+  Tau.ATE.Mean.Diff <- sum(Within.Strata.Results$Mean.Yield.Diff * Within.Strata.Results$n/n_total)
+  Tau.ATE.Log.Ratio <- sum(Within.Strata.Results$Mean.Log.Yield.Ratio* Within.Strata.Results$n/n_total)
+  Var.ATE.Mean.Diff <- sum(Within.Strata.Results$Var.Yield.Diff * (Within.Strata.Results$n/n_total)**2)
+  Var.ATE.Log.Ratio <- sum(Within.Strata.Results$Var.Log.Yield.Ratio* (Within.Strata.Results$n/n_total)**2)
+  
+  CI.ATE.Mean.Diff <- c(Tau.ATE.Mean.Diff - qnorm(.975)*Var.ATE.Mean.Diff, Tau.ATE.Mean.Diff + qnorm(.975)*Var.ATE.Mean.Diff)
+  CI.ATE.Mean.Diff.L = CI.ATE.Mean.Diff[1]
+  CI.ATE.Mean.Diff.U = CI.ATE.Mean.Diff[2]
+  CI.ATE.Log.Ratio <- c(Tau.ATE.Log.Ratio - qnorm(.975)*Var.ATE.Log.Ratio, Tau.ATE.Log.Ratio + qnorm(.975)*Var.ATE.Log.Ratio)
+  CI.ATE.Log.Ratio.L = CI.ATE.Log.Ratio[1]
+  CI.ATE.Log.Ratio.U = CI.ATE.Log.Ratio[2]
+  
+  Across.Strata.Results = data.frame(Tau.ATE.Mean.Diff, Var.ATE.Mean.Diff,
+                                     CI.ATE.Mean.Diff.L, CI.ATE.Mean.Diff.U,
+                                     Tau.ATE.Log.Ratio, Var.ATE.Log.Ratio,
+                                     CI.ATE.Log.Ratio.L, CI.ATE.Log.Ratio.U)
+  
+  return (list(Within.Strata.Results,Across.Strata.Results))
+}
+```
+
+```{r}
+# Testing get_basic_causal_results function
+
+results = get_basic_causal_results('cotton','Location')
+(Within.Strata.Results = results[1])
+(Across.Strata.Results = results[2])
+
+```
+
+Function that runs get_basic_causal_results for each crop type, given another covariate to stratify on so that we can report results on a per-crop basis.
+
+
+```{r}
+
+get_basic_causal_results_all_crops <- function(covariate, n_draw, seed) {
+  crop_types = sort(unique(data$Crop))
+  
+  # For each crop type, stratify by the given covariate and save results
+  for (i in 1:length(crop_types)) {
+    crop = crop_types[i]
+    print(crop)
+    results = get_basic_causal_results(crop,covariate)
+    
+    write.csv(results[1], paste('Within.Strata.Results',crop,covariate,'.csv',sep='_'))
+    write.csv(results[2], paste('Across.Strata.Results',crop,covariate,'.csv',sep='_'))
+
+  }
+}
+```
+
+```{r}
+get_basic_causal_results_all_crops('Location',n_draw,seed)
+```
 
