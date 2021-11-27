@@ -376,11 +376,44 @@ CLT_results = compute_CLT_estimator(data_subset,'Location',100)
 
 ##### Monte Carlo Estimates
 
-TODO: write function to compute T_rank and T_diff as described in Imbens p.223
-run for all crop types and get p-vals and CI's (can pass the function to `compute_p_value_mc()` )
+```{r}
 
+compute_rank_statistic <- function(data, covariate, n_draw=10000,seed=100) {
+  
+  cov_vals = sort(unique(data[[covariate]]))
+  C = length(cov_vals)
+  
+  Tau.Rank = vector(length=C)
+  P.Value.Rank = vector(length=C)
+  
+  # For each covariate value
+  for (i in 1:C) {
+    
+    # Filter the data for that value
+    data_subset = data[data[[covariate]] == cov_vals[i],]
 
-TODO: run for all crop types and get p-vals
+    # Get the rank statistics after subsetting
+    rank_all = order(c(unlist(data_subset$Yield.of.CT), unlist(data_subset$Yield.of.NT)))
+    data_subset$CT.Rank = rank_all[1:(length(rank_all)/2)]
+    data_subset$NT.Rank = rank_all[(length(rank_all)/2 + 1) : (length(rank_all))]
+    data_subset$Rank.Diff = data_subset$NT.Rank - data_subset$CT.Rank
+    
+    # Compute the estimate
+    Tau.Rank[i] = mean(data_subset$Rank.Diff)
+    
+    # Compute the p-value
+    P.Value.Rank[i] = compute_p_value_mc(f = generate_diff_test_stat,
+                                         diff_vec = data_subset$Rank.Diff,
+                                         n_draw = n_draw,
+                                         seed = seed)
+    
+  }
+  return (data.frame(cov_vals, Tau.Rank, P.Value.Rank))
+}
+
+(rank_stats = compute_rank_statistic(data, 'Crop'))
+
+```
 
 ### Automation
 
@@ -419,6 +452,10 @@ get_basic_causal_results <- function(crop, covariate, n_draw=10000, seed=100) {
   FRT_results = runFRT_each_strata(data_subset,covariate,n_draw,seed)
   Within.Strata.Results['P.Value.Mean.Yield.Diff'] = FRT_results['P.Value.Mean.Yield.Diff']
   Within.Strata.Results['P.Value.Log.Yield.Ratio'] = FRT_results['P.Value.Log.Yield.Ratio']
+  
+  Rank_results = compute_rank_statistic(data_subset,covariate,n_draw,seed)
+  Within.Strata.Results['Tau.Rank'] = Rank_results['Tau.Rank']
+  Within.Strata.Results['P.Value.Rank'] = Rank_results['P.Value.Rank']
   
   # TODO - getting errors too few x observations when stratify further
   # CLT_results = compute_CLT_estimator(data_subset,covariate,seed)
@@ -460,7 +497,7 @@ results = get_basic_causal_results('cotton','Location')
 
 ```
 
-Function that runs get_basic_causal_results for each crop type, given another covariate to stratify on so that we can report results on a per-crop basis.
+Function that runs get_basic_causal_results for each crop type (given another covariate to stratify on), and saves results to .csv files labeled by crop type and covariate.
 
 
 ```{r}
