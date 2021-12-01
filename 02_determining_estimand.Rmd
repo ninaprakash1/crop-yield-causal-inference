@@ -1,0 +1,97 @@
+---
+title: "Basic Causal Effect"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+```
+
+
+# Reading & Pre-processing Data
+```{r}
+data<-read.csv("data/Data For R.csv")
+
+#add all columns to convert to factors/numeric
+to_factor_cols <- c("Crop")
+to_numeric_cols <- c("Yield.of.CT", "Yield.of.NT")
+data[to_factor_cols] <- lapply(data[to_factor_cols], factor)
+data[to_numeric_cols] <- lapply(data[to_numeric_cols], as.numeric)
+```
+
+```{r}
+data$Yield.Diff = data$Yield.of.NT -  data$Yield.of.CT
+data$log.Yield.Ratio = log(data$Yield.of.NT) -  log(data$Yield.of.CT)
+```
+
+
+## Determining Estimand of Interest 
+
+Given that this data is comprised of paired observations from hundreds of studies of different crop types in different locations, years, and conditions, the magnitudes of the values in individual pairs vary significantly, and thus we would not expect a constant additive treatment effect if we fit over all the data.
+As illustrated below, there is a linear relationship with a non-constant slope between $Y(0)$ and $Y(1)$, and if $Y(1) = aY(0) + b$, then $Y(1) - Y(0)  = (a-1)Y(0) + b$ and thus the effect is clearly not constant provided that $a \neq 1$.
+
+```{r}
+ggplot(data, aes(x=Yield.of.CT,  y=Yield.of.NT, color = Crop))+
+  geom_point(shape = 1) + 
+  geom_smooth(formula = y~x)
+
+```
+The non-constant treatment effect is shown here by plotting $Y(0)$ vs $Y(1) - Y(0)$
+```{r}
+ggplot(data, aes(Yield.of.NT - Yield.of.CT, x=Yield.of.CT))+
+  geom_point(shape = 1) +
+  geom_smooth(formula = y~x)
+
+```
+
+Given that the yields of different crops are in different units, (e.g., kg/ha of maize is fundamentally different than a kg/ha of wheat), and the clearly different magnitudes in yields for different crop types shown above, it seems plausible that this linear relationship is due mostly to crop type. However, we can see there clearly is relationsip between $Y(0)$ and $Y(1) - Y(0)$ even within crops. We also notice some outliers-- sunflower in particular. 
+
+```{r}
+ggplot(data, aes(y=Yield.of.NT - Yield.of.CT, x=Yield.of.CT))+
+  geom_point(shape = 1) +
+  geom_smooth(formula = y~x) +
+  facet_wrap(~Crop,ncol = 5,  scales = "free")+ 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+If this linear relationship holds, than we would expect a multiplicative treatment effect, and thus log transformation of the ratio will yield a constant additive treatment effect (see Imbens p. 65): 
+
+$$\log \frac{Y(1)}{Y(0)} =  \log Y(1) - \log Y(0) \sim \log(a) + \log Y(0) - \log Y(0) = log(a) $$
+Examining the plots below, we see that the log transformation results in something much closer to a constant treatment effect, although we do note that (1) the funnel shaped in both plots indicate that the variance of this estimator is larger for smaller magnitudes of CT and (2) from manitude of the ratios are still quite different for different crop types, so even using this estimator, it would be better to conduct a paired randomized experiment within each strata, and then combine them if we wish. 
+```{r}
+
+data %>%
+  ggplot( aes(x=Yield.of.CT, y=log.Yield.Ratio))+
+  geom_point(shape = 1, alpha = .5)+
+  geom_smooth(formula = y~x)
+
+data %>%
+  ggplot( aes(x=Yield.of.CT, y=log.Yield.Ratio))+
+  geom_point(shape = 1)+
+   geom_smooth(formula = y~x) +
+  facet_wrap(~Crop,ncol = 5,  scales = "free")
+```
+Thus, our estimator is is the log ratio of the treated to the untreated: $\tau = E[log \frac{Y(1)}{Y(0)}] = E[log Y(1) - log Y(0)]  $
+
+
+Examining this without outliers, this still holds.
+
+
+```{r}
+data_no_outlier  <- subset(data, Outlier_NT ==0 | Outlier_CT == 0)
+```
+
+```{r}
+
+data_no_outlier %>%
+  ggplot( aes(x=Yield.of.CT, y=log.Yield.Ratio))+
+  geom_point(shape = 1, alpha = .5)+
+  geom_smooth(formula = y~x)
+
+data_no_outlier%>%
+  ggplot( aes(x=Yield.of.CT, y=log.Yield.Ratio))+
+  geom_point(shape = 1)+
+   geom_smooth(formula = y~x) +
+  facet_wrap(~Crop,ncol = 5,  scales = "free")
+```

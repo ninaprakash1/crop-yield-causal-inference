@@ -1,0 +1,12 @@
+
+
+# R stuff
+.Rdata
+.Rhistory
+*.nb.html
+
+Mac stuff
+.DS_Store
+
+ouput results
+*.csv
