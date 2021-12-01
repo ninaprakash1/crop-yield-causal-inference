@@ -411,7 +411,17 @@ get_basic_causal_results <- function(crop, covariate, n_draw=10000, seed=100) {
                                      Tau.ATE.Log.Ratio, Var.ATE.Log.Ratio,
                                      CI.ATE.Log.Ratio.L, CI.ATE.Log.Ratio.U)
   
-  return (list(Within.Strata.Results,Across.Strata.Results))
+  # 5. Plot 95% CI for Log Ratio
+  p <- ggplot(Within.Strata.Results, aes_string(x=covariate, y="Mean.Log.Yield.Ratio")) +
+  geom_point( size = 3, color = 'purple') +
+  geom_errorbar(aes(ymax = CI.U.Ratio, ymin = CI.L.Ratio), color = 'purple', alpha = .8) +
+  coord_flip() +
+  xlab("")
+
+  p = p + geom_hline(yintercept= 0, color= 'black', linetype = 'dashed', alpha = .8) + 
+    ggtitle(paste("95% CI for Log Ratio for ", crop, " and ", covariate))
+  
+  return (list(Within.Strata.Results,Across.Strata.Results, p))
 }
 ```
 
@@ -421,6 +431,7 @@ get_basic_causal_results <- function(crop, covariate, n_draw=10000, seed=100) {
 results = get_basic_causal_results('cotton','Location')
 (Within.Strata.Results = results[1])
 (Across.Strata.Results = results[2])
+(p = results[3])
 
 ```
 
