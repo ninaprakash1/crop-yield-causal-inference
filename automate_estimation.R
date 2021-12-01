@@ -171,7 +171,7 @@ get_basic_causal_results <- function(crop, covariate, n_draw=10000, seed=100) {
     xlab("")
   
   p = p + geom_hline(yintercept= 0, color= 'black', linetype = 'dashed', alpha = .8) + 
-    ggtitle(paste("95% CI for Log Ratio for ", crop, " and ", covariate))
+    ggtitle(paste("95% CI for Log Ratio for ", crop, " and ", covariate))  + theme(text=element_text(size=10))
   
   return (list(Within.Strata.Results,Across.Strata.Results, p))
 }
