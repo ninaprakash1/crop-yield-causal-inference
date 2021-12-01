@@ -39,7 +39,7 @@ runFRT_each_strata <- function(data, covariate, n_draw, seed) {
   cov_vals = sort(unique(data[[covariate]]))
   C = length(cov_vals)
   
-  P.Value.Log.Yield.Ratio = vector(length = C)
+  P.Value.Ln_ratio = vector(length = C)
   
   for (i in 1:C) {
     # Get strata
@@ -47,13 +47,13 @@ runFRT_each_strata <- function(data, covariate, n_draw, seed) {
     
     # Compute p-value for log ratio
     p_val_lr = compute_p_value_mc(f = generate_diff_test_stat,
-                                  diff_vec = data$log.Yield.Ratio[mask],
+                                  diff_vec = data$Ln_ratio[mask],
                                   n_draw = n_draw,
                                   seed = seed)
-    P.Value.Log.Yield.Ratio[i] = p_val_lr
+    P.Value.Ln_ratio[i] = p_val_lr
   }
   
-  return (data.frame(cov_vals, P.Value.Log.Yield.Ratio))
+  return (data.frame(cov_vals, P.Value.Ln_ratio))
   
 }
 
@@ -73,7 +73,7 @@ compute_CLT_estimator <- function(data, covariate, seed) {
   
   for (i in 1:C) {
     mask = data[[covariate]] == cov_vals[i]
-    results = t.test(x = data$log.Yield.Ratio[mask], mu=0, paired=FALSE)s
+    results = t.test(x = data$Ln_ratio[mask], mu=0, paired=FALSE)
     P.Value.CLT[i] = results[[3]]
   }
   
@@ -114,7 +114,7 @@ compute_rank_statistic <- function(data, covariate, n_draw=10000,seed=100) {
   return (data.frame(cov_vals, Tau.Rank, P.Value.Rank))
 }
 
-get_basic_causal_results <- function(crop, covariate, n_draw=10000, seed=100) {
+get_basic_causal_results <- function(data, crop, covariate, n_draw=10000, seed=100) {
   # @param  crop       Crop name
   # @param  covariate  Name of covariate variable to stratify on
   # @param  n_draw     Number of iterations for FRT
@@ -122,6 +122,8 @@ get_basic_causal_results <- function(crop, covariate, n_draw=10000, seed=100) {
   
   # 1. Get subset of data for crop
   data_subset = subset(data, Crop==crop)
+  data_subset <- data_subset[!is.na(data_subset[[covariate]]),]
+  
   
   # 2. Get unique covariate values
   cov_vals = sort(unique(data_subset[[covariate]]))
@@ -130,16 +132,16 @@ get_basic_causal_results <- function(crop, covariate, n_draw=10000, seed=100) {
   #         Log yield ratio and its Neymanian variance and CI
   Within.Strata.Results <- data_subset %>% group_by(.data[[covariate]]) %>%
     dplyr::summarise(
-      Mean.Log.Yield.Ratio = mean(log.Yield.Ratio),
-      Var.Log.Yield.Ratio = var(log.Yield.Ratio)/(n()-1),
+      Mean.Ln_ratio = mean(Ln_ratio),
+      Var.Ln_ratio = var(Ln_ratio)/(n()-1),
       n = n()) %>%
     
-    mutate(CI.L.Ratio  = Mean.Log.Yield.Ratio - qnorm(.975)*sqrt(Var.Log.Yield.Ratio), 
-           CI.U.Ratio  = Mean.Log.Yield.Ratio + qnorm(.975)*sqrt(Var.Log.Yield.Ratio))
+    mutate(CI.L.Ratio  = Mean.Ln_ratio - qnorm(.975)*sqrt(Var.Ln_ratio), 
+           CI.U.Ratio  = Mean.Ln_ratio + qnorm(.975)*sqrt(Var.Ln_ratio))
 
   # 4. Get p-value using FRT
   FRT_results = runFRT_each_strata(data_subset,covariate,n_draw,seed)
-  Within.Strata.Results['P.Value.Log.Yield.Ratio'] = FRT_results['P.Value.Log.Yield.Ratio']
+  Within.Strata.Results['P.Value.Ln_ratio'] = FRT_results['P.Value.Ln_ratio']
   
   # 5. Get p-value using CLT
   CLT_results = compute_CLT_estimator(data_subset,covariate,seed)
@@ -153,8 +155,8 @@ get_basic_causal_results <- function(crop, covariate, n_draw=10000, seed=100) {
   # 7. Get estimator across strata (still within crop subset)
   #         ATE, variance of ATE, and 95% CI for ATE
   n_total <- sum(Within.Strata.Results$n)
-  Tau.ATE.Log.Ratio <- sum(Within.Strata.Results$Mean.Log.Yield.Ratio* Within.Strata.Results$n/n_total)
-  Var.ATE.Log.Ratio <- sum(Within.Strata.Results$Var.Log.Yield.Ratio* (Within.Strata.Results$n/n_total)**2)
+  Tau.ATE.Log.Ratio <- sum(Within.Strata.Results$Mean.Ln_ratio* Within.Strata.Results$n/n_total)
+  Var.ATE.Log.Ratio <- sum(Within.Strata.Results$Var.Ln_ratio* (Within.Strata.Results$n/n_total)**2)
   
   CI.ATE.Log.Ratio <- c(Tau.ATE.Log.Ratio - qnorm(.975)*Var.ATE.Log.Ratio, Tau.ATE.Log.Ratio + qnorm(.975)*Var.ATE.Log.Ratio)
   CI.ATE.Log.Ratio.L = CI.ATE.Log.Ratio[1]
@@ -164,7 +166,7 @@ get_basic_causal_results <- function(crop, covariate, n_draw=10000, seed=100) {
                                      CI.ATE.Log.Ratio.L, CI.ATE.Log.Ratio.U)
   
   # 8. Make plot of 95% CI
-  p <- ggplot(Within.Strata.Results, aes_string(x=covariate, y="Mean.Log.Yield.Ratio")) +
+  p <- ggplot(Within.Strata.Results, aes_string(x=covariate, y="Mean.Ln_ratio")) +
     geom_point( size = 3, color = 'purple') +
     geom_errorbar(aes(ymax = CI.U.Ratio, ymin = CI.L.Ratio), color = 'purple', alpha = .8) +
     coord_flip() +
@@ -178,14 +180,14 @@ get_basic_causal_results <- function(crop, covariate, n_draw=10000, seed=100) {
 
 # Main automation function. Runs basic analysis for each crop type, stratified
 # on given covariate (column name).
-get_basic_causal_results_all_crops <- function(covariate, n_draw, seed) {
+get_basic_causal_results_all_crops <- function(data, covariate, n_draw, seed) {
   crop_types = sort(unique(data$Crop))
   
   # For each crop type, stratify by the given covariate and save results
   for (i in 1:length(crop_types)) {
     crop = crop_types[i]
     print(crop)
-    results = get_basic_causal_results(crop,covariate)
+    results = get_basic_causal_results(data, crop,covariate)
     
     if (!dir.exists('./results')) {
       dir.create('./results')

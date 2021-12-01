@@ -57,10 +57,10 @@ climatic_soil_vars <- c("pH..surface.layer.", #at experiment site at time of exp
                         "ST") #Soil texture at experiment  location. Categorical: Sandy Loam; Loam; Silt Loam; Sandy Clay Loam; Clay Loam; Sandy Clay; Clay
 
 crop_covar<- c("Crop")
-outcome <- c("Ln_ratio")
-
-keep_cols <- c(study_covars,study_location_covars, study_year_covars, seasonal_covars,crop_covar, mgmt_practice_covars, mgmt_practice_treatments, climatic_soil_vars, outcome)
-data_clean<- data_clean[,keep_cols]
+outcome_vars <- c("Ln_ratio", "Yield.of.CT", "Yield.of.NT")
+keep_cols <- c(study_covars,study_location_covars, study_year_covars, seasonal_covars,crop_covar, mgmt_practice_covars, 
+               mgmt_practice_treatments, climatic_soil_vars, outcome_vars)
+data_clean<- data_clean[,c(keep_cols, 'Yield.of.CT', 'Yield.of.NT')]
 
 #In 2 cases, experimement year is before sowing year, which is likely a data entry error, so we remove these observation pairs:
 data_clean <- data_clean[data_clean$Durationof.NT.period.at.sowing..yrs. >= 0,]
