@@ -460,3 +460,58 @@ get_basic_causal_results_all_crops <- function(covariate, n_draw, seed) {
 get_basic_causal_results_all_crops('Location',n_draw,seed)
 ```
 
+Slightly modify the function to perform analysis per-crop, no additional covariates.
+```{r}
+get_basic_causal_results_per_crop <- function(data, n_draw=10000, seed=100) {
+  
+  # 3. Get within-strata results, for each covariate value
+  #         Log yield ratio and its Neymanian variance and CI
+  Within.Strata.Results <- data %>% group_by(Crop) %>%
+    dplyr::summarise(
+      Mean.Ln_ratio = mean(Ln_ratio),
+      Var.Ln_ratio = var(Ln_ratio)/(n()-1),
+      n = n()) %>%
+    
+    mutate(CI.L.Ratio  = Mean.Ln_ratio - qnorm(.975)*sqrt(Var.Ln_ratio), 
+           CI.U.Ratio  = Mean.Ln_ratio + qnorm(.975)*sqrt(Var.Ln_ratio))
+  
+  # 4. Get p-value using FRT
+  FRT_results = runFRT_each_strata(data,'Crop',n_draw,seed)
+  Within.Strata.Results['P.Value.Ln_ratio'] = FRT_results['P.Value.Ln_ratio']
+  
+  # 5. Get p-value using CLT
+  CLT_results = compute_CLT_estimator(data,'Crop',seed)
+  Within.Strata.Results['P.Value.CLT'] = CLT_results['P.Value.CLT']
+  
+  # 6. Get rank statistic and its p-value
+  Rank_results = compute_rank_statistic(data,'Crop',n_draw,seed)
+  Within.Strata.Results['Tau.Rank'] = Rank_results['Tau.Rank']
+  Within.Strata.Results['P.Value.Rank'] = Rank_results['P.Value.Rank']
+  
+  # 7. Get estimator across strata (still within crop subset)
+  #         ATE, variance of ATE, and 95% CI for ATE
+  n_total <- sum(Within.Strata.Results$n)
+  Tau.ATE.Log.Ratio <- sum(Within.Strata.Results$Mean.Ln_ratio* Within.Strata.Results$n/n_total)
+  Var.ATE.Log.Ratio <- sum(Within.Strata.Results$Var.Ln_ratio* (Within.Strata.Results$n/n_total)**2)
+  
+  CI.ATE.Log.Ratio <- c(Tau.ATE.Log.Ratio - qnorm(.975)*Var.ATE.Log.Ratio, Tau.ATE.Log.Ratio + qnorm(.975)*Var.ATE.Log.Ratio)
+  CI.ATE.Log.Ratio.L = CI.ATE.Log.Ratio[1]
+  CI.ATE.Log.Ratio.U = CI.ATE.Log.Ratio[2]
+  
+  Across.Strata.Results = data.frame(Tau.ATE.Log.Ratio, Var.ATE.Log.Ratio,
+                                     CI.ATE.Log.Ratio.L, CI.ATE.Log.Ratio.U)
+  
+  # 8. Make plot of 95% CI
+  p <- ggplot(Within.Strata.Results, aes(x=Crop, y=Mean.Ln_ratio)) +
+    geom_point( size = 3, color = 'purple') +
+    geom_errorbar(aes(ymax = CI.U.Ratio, ymin = CI.L.Ratio), color = 'purple', alpha = .8) +
+    coord_flip() +
+    xlab("")
+  
+  p = p + geom_hline(yintercept= 0, color= 'black', linetype = 'dashed', alpha = .8) + 
+    ggtitle("95% CI for Log Ratio")  + theme(text=element_text(size=10))
+  
+  return (list(Within.Strata.Results,Across.Strata.Results, p))
+}
+```
+

@@ -114,6 +114,63 @@ compute_rank_statistic <- function(data, covariate, n_draw=10000,seed=100) {
   return (data.frame(cov_vals, Tau.Rank, P.Value.Rank))
 }
 
+
+get_basic_causal_results_per_crop <- function(data, n_draw=10000, seed=100) {
+  
+  # 3. Get within-strata results, for each covariate value
+  #         Log yield ratio and its Neymanian variance and CI
+  Within.Strata.Results <- data %>% group_by(Crop) %>%
+    dplyr::summarise(
+      Mean.Ln_ratio = mean(Ln_ratio),
+      Var.Ln_ratio = var(Ln_ratio)/(n()-1),
+      n = n()) %>%
+    
+    mutate(CI.L.Ratio  = Mean.Ln_ratio - qnorm(.975)*sqrt(Var.Ln_ratio), 
+           CI.U.Ratio  = Mean.Ln_ratio + qnorm(.975)*sqrt(Var.Ln_ratio))
+  
+  # 4. Get p-value using FRT
+  FRT_results = runFRT_each_strata(data,'Crop',n_draw,seed)
+  Within.Strata.Results['P.Value.Ln_ratio'] = FRT_results['P.Value.Ln_ratio']
+  
+  # 5. Get p-value using CLT
+  CLT_results = compute_CLT_estimator(data,'Crop',seed)
+  Within.Strata.Results['P.Value.CLT'] = CLT_results['P.Value.CLT']
+  
+  # 6. Get rank statistic and its p-value
+  Rank_results = compute_rank_statistic(data,'Crop',n_draw,seed)
+  Within.Strata.Results['Tau.Rank'] = Rank_results['Tau.Rank']
+  Within.Strata.Results['P.Value.Rank'] = Rank_results['P.Value.Rank']
+  
+  # 7. Get estimator across strata (still within crop subset)
+  #         ATE, variance of ATE, and 95% CI for ATE
+  n_total <- sum(Within.Strata.Results$n)
+  Tau.ATE.Log.Ratio <- sum(Within.Strata.Results$Mean.Ln_ratio* Within.Strata.Results$n/n_total)
+  Var.ATE.Log.Ratio <- sum(Within.Strata.Results$Var.Ln_ratio* (Within.Strata.Results$n/n_total)**2)
+  
+  CI.ATE.Log.Ratio <- c(Tau.ATE.Log.Ratio - qnorm(.975)*Var.ATE.Log.Ratio, Tau.ATE.Log.Ratio + qnorm(.975)*Var.ATE.Log.Ratio)
+  CI.ATE.Log.Ratio.L = CI.ATE.Log.Ratio[1]
+  CI.ATE.Log.Ratio.U = CI.ATE.Log.Ratio[2]
+  
+  Across.Strata.Results = data.frame(Tau.ATE.Log.Ratio, Var.ATE.Log.Ratio,
+                                     CI.ATE.Log.Ratio.L, CI.ATE.Log.Ratio.U)
+  
+  # 8. Make plot of 95% CI
+  p <- ggplot(Within.Strata.Results, aes(x=Crop, y=Mean.Ln_ratio)) +
+    geom_point( size = 3, color = 'purple') +
+    geom_errorbar(aes(ymax = CI.U.Ratio, ymin = CI.L.Ratio), color = 'purple', alpha = .8) +
+    coord_flip() +
+    xlab("")
+  
+  p = p + geom_hline(yintercept= 0, color= 'black', linetype = 'dashed', alpha = .8) + 
+    ggtitle("95% CI for Log Ratio")  + theme(text=element_text(size=10))
+  
+  write.csv(Within.Strata.Results, paste('./results/Within.Strata.Results_PerCrop_NoCovars.csv'))
+  write.csv(Across.Strata.Results, paste('./results/Across.Strata.Results_PerCrop_NoCovars.csv'))
+  ggsave(paste('./results/CI_PerCrop_NoCovars.png')) # save the most recent ggplot (p)
+  
+  return (list(Within.Strata.Results,Across.Strata.Results, p))
+}
+
 get_basic_causal_results <- function(data, crop, covariate, n_draw=10000, seed=100) {
   # @param  crop       Crop name
   # @param  covariate  Name of covariate variable to stratify on
