@@ -1,3 +1,46 @@
+### covariates of interest
+study_covars <- c('Seq',#id for study 
+                  "Site.country", 
+                  "Latitude",
+                  "Longitude",
+                  "Start.year.of.NT...or.first.year.of.experiment.if.missing.", 
+                  "Sowing.year",
+                  "Harvest.year") 
+
+
+seasonal_covars <- c("Sowing.month", 
+                     "Harvesting.month"
+)
+
+
+mgmt_practice_treatment_pairs <- c('Soil.Cover.Pair', 
+                                   'Crop.Rotation.Pair',
+                                   'Residue.Management.Pair', 
+                                   'Weed.Pest.Control.Pair', 
+                                   'Fertilization.Pair')
+
+treatment_durs <- c('treatment_duration_4_grouping', 
+                    'treatment_duration_eq_3',
+                    'treatment_duration_eq_4', 
+                    'treatment_duration_eq_5')
+
+
+mgmt_practice_covars <- c("Rotation.Conservation.Crop", #indicator of Crop rotation with >= 3 crops in accordance with FAO def of conservation agriculture 
+                          "N.input" #Yes, No or Mix
+) 
+
+climatic_soil_vars <- c("pH..surface.layer.", #at experiment site at time of experiment start
+                        "P", #Precipitation over the growing season	(mm)
+                        "E", #Potential evapotranspiration over the growing season (mm))
+                        "PB", #Precipitation balance (mm) := the amount of available water in the growing season for rainfed field
+                        "Tave", #Average air temperature during the growing season (C)
+                        "Tmax", #Max air temperature during the growing season (C) 
+                        "Tmin", #Min air temperature during the growing season (C) 
+                        "ST") #Soil texture at experiment  location. Categorical: Sandy Loam; Loam; Silt Loam; Sandy Clay Loam; Clay Loam; Sandy Clay; Clay
+
+crop_covar<- c("Crop")
+outcome_vars <- c("Ln_ratio", "Yield.of.CT", "Yield.of.NT")
+
 
 # Randomly permute the difference column for FRT,
 # then compute the estimator for that permutation.

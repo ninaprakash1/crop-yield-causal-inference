@@ -10,7 +10,7 @@ library(ggplot2)
 data<-read.csv(file.path("data", "Data for R.csv"), na.strings = "")
 
 #TODO: decide on handling of outliers
-#data <- subset(data, Outlier_NT ==0 | Outlier_CT == 0)
+data <- subset(data, Outlier_NT ==0 | Outlier_CT == 0)
 
 data_clean <- data %>% 
   rename(Rotation.Conservation.Crop = R.CT, Irrigation = Irrigation.CT)
@@ -127,6 +127,17 @@ data_clean <- make_treatment_pairs(df = data_clean,
                                    c_treatment = "Fertilization.CT",
                                    t_treatment = "Fertilization.NT",
                                    new_col = 'Fertilization.Pair')
+
+dur_max <- max(data_clean$Durationof.NT.period.at.sowing..yrs.)
+data_clean<-data_clean %>%
+  mutate(treatment_duration_4_grouping = cut(Durationof.NT.period.at.sowing..yrs., 
+                                             breaks = c(0,5, 10,20,dur_max), 
+                                             include.lowest = TRUE),
+         treatment_duration_eq_3 = cut_number(Durationof.NT.period.at.sowing..yrs.,3), 
+         treatment_duration_eq_4 = cut_number(Durationof.NT.period.at.sowing..yrs.,4), 
+         treatment_duration_eq_5 = cut_number(Durationof.NT.period.at.sowing..yrs.,5))
+
+data_clean <- data_clean[!names(data_clean) %in% c("Durationof.NT.period.at.sowing..yrs.")]
 
 
 
