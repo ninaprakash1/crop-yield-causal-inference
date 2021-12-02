@@ -1,0 +1,111 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(ggplot2)
+source('automate_estimation.R')
+```
+
+```{r}
+get_neyman_CI_df <- function(df, covariate_col, by_crop = FALSE) {
+  df <- df[!is.na(df[[covariate_col]]),]
+  
+  if (by_crop) {
+      Var.Neyman <- df %>% group_by(Crop, .data[[covariate_col]]) %>%
+      dplyr::summarise(
+            Mean.Log.Yield.Ratio = mean(Ln_ratio), 
+            Var.Log.Yield.Ratio = var(Ln_ratio)/(n()-1),
+            n = n())
+  } else {
+      Var.Neyman <- df %>% group_by( .data[[covariate_col]]) %>%
+      dplyr::summarise(
+            Mean.Log.Yield.Ratio = mean(Ln_ratio), 
+            Var.Log.Yield.Ratio = var(Ln_ratio)/(n()-1),
+            n = n())
+  }
+  
+  if (covariate_col == 'strata') {
+    Var.Neyman$strata <- row.names(Var.Neyman)
+  }
+
+  Var.Neyman <- Var.Neyman %>% 
+    mutate(CI.L.Ratio  = Mean.Log.Yield.Ratio - qnorm(.975)*sqrt(Var.Log.Yield.Ratio), 
+        CI.U.Ratio  = Mean.Log.Yield.Ratio + qnorm(.975)*sqrt(Var.Log.Yield.Ratio))
+  return (Var.Neyman)
+  
+}
+```
+
+```{r}
+plot_CI_Intervals <- function(Var.Neyman, covariate_col, by_crop = FALSE, scales = 'fixed') {
+  p <- ggplot(Var.Neyman, aes_string(x=covariate_col, y="Mean.Log.Yield.Ratio")) +
+    geom_point(aes( colour = Mean.Log.Yield.Ratio), size = 2) +
+    #geom_point(shape = 1,size = 5,colour = "black")+
+    geom_errorbar(aes(ymax = CI.U.Ratio, ymin = CI.L.Ratio, colour = Mean.Log.Yield.Ratio), width=1,size=0.5) +
+    scale_colour_gradient2(low = "red", high = "blue")
+  if (by_crop) {
+    p <- p  + facet_wrap(~Crop,ncol = 2, scales = scales)
+  }
+  p <- p + coord_flip() +
+    xlab(covariate_col) +
+    ylab("Log Ratio Yield")
+  
+  p$labels$colour <- "Log Ratio Yield"
+
+  p + geom_hline(yintercept= 0, color= 'black', linetype = 'dashed', alpha = .8) +
+        theme_dark()
+ 
+      
+}
+
+```
+
+```{r}
+data<-read.csv(file.path("data", "data_clean.csv"), stringsAsFactors = TRUE)
+data$treatment_duration_4_grouping <- factor(data$treatment_duration_4_grouping, ordered = TRUE, 
+                                             levels = c( "[0,5]", "(5,10]", "(10,20]", "(20,52]"))
+data$treatment_duration_eq_3 <- factor(data$treatment_duration_eq_3, ordered = TRUE, 
+                                             levels = c("[0,3]", "(3,8]" , "(8,52]"  ))
+data$treatment_duration_eq_4 <- factor(data$treatment_duration_eq_4, ordered = TRUE, 
+                                             levels = c(  "[0,2]", "(2,5]" ,"(5,11]", "(11,52]"))
+data$treatment_duration_eq_5 <- factor(data$treatment_duration_eq_5, ordered = TRUE, 
+                                             levels = c("[0,2]", "(2,4]" ,  "(4,7]" , "(7,13]", "(13,52]"  ))
+```
+
+
+```{r}
+Neyman.CI <- get_neyman_CI_df(data, covariate_col = 'Crop')
+plot_CI_Intervals(Neyman.CI, covariate_col = 'Crop')
+ggsave(paste('./results/figs/CI_all_crops.png')) # save the most revent ggplot (p)
+```
+
+```{r}
+crop_list <- c(unique(as.character(data$Crop)), 'all_crops')
+for (crop in crop_list) {
+  print(crop)
+  Neyman.CI <- get_neyman_CI_df(read.csv(paste('./results/covar_stratification_', crop, '.csv', sep = '')), covariate_col = 'strata')
+  plot_CI_Intervals(Neyman.CI, covariate_col = 'strata')
+  ggsave(paste('./results/figs/CI_stratified_covar_',crop,'_','.png', sep = '')) # save the most recent ggplot (p)
+}
+```
+
+```{r}
+for (pair in mgmt_practice_treatment_pairs) {
+  print(pair)
+  Neyman.CI <- get_neyman_CI_df(data, covariate_col = pair, by_crop = TRUE)
+  print(plot_CI_Intervals(Neyman.CI, covariate_col = pair, by_crop = TRUE, scales = 'fixed'))
+  ggsave(paste('./results/figs/CI_treatment_',pair,'.png', sep = '')) # save the most recent ggplot (p)
+}
+
+```
+
+```{r}
+for (dur in treatment_durs) {
+  Neyman.CI <- get_neyman_CI_df(data, covariate_col = dur, by_crop = TRUE)
+  print(plot_CI_Intervals(Neyman.CI, covariate_col = dur, by_crop = TRUE, scales = 'fixed'))
+  ggsave(paste('./results/figs/CI_',dur,'.png', sep = '')) # save the most recent ggplot (p)
+}
+
+```

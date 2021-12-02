@@ -1,0 +1,195 @@
+---
+title: "Finding Important Covariates"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)       # data wrangling
+library(rpart)       # performing regression trees
+library(rpart.plot)  # plotting regression trees
+library(countrycode)
+library(data.table)
+library(ggplot2)
+
+```
+
+
+```{r}
+source('automate_estimation.R')
+```
+
+```{r}
+data<-read.csv(file.path("data", "data_clean.csv"))
+
+covar_outcome_cols <- c(study_covars, seasonal_covars, crop_covar, mgmt_practice_covars,climatic_soil_vars, "Ln_ratio")
+data_covar <- data[, covar_outcome_cols]
+
+```
+
+
+
+The study is by far the best predictor of outcome, which is clearly not of interest to us, and is likely to produce strata that include observations from only a few studies.
+```{r}
+m1 <- rpart(
+  formula = Ln_ratio ~ .,
+  data    = data_covar,
+  method  = "anova"
+  )
+print(m1$variable.importance[0:5])
+sf_seq_strata <- setNames(data.frame(cbind( m1$where, data$Seq)),  c('strata', 'Seq'))
+print(sf_seq_strata %>% group_by(strata) %>% summarise(n_distinct(Seq)))
+```
+
+We want to avoid stratifying such that (1) a strata is comprised of observations from a single study, or (2) where stratification splits are based implicitly on the study. 
+
+Since many covariates are almost always the the same across a study, we would expect that a regression tree that includes these covariates will split on these, thus implicitly splitting on study. The following are all more than 90% constant. 
+
+```{r}
+n_unique_covar_per_study <- data.table(data_covar)[, lapply(.SD, function(x) length(unique(x))), by=Seq]
+perc_studies_with_const_covar <- lapply(n_unique_covar_per_study, function(col) {sum(col == 1)/length(col)})
+print(perc_studies_with_const_covar[perc_studies_with_const_covar > .9])
+```
+
+Thus to identify these, we fit a decision tree on Seq to identify these variables that are highly predictive of Seq. 
+```{r}
+m_study <- rpart(
+  formula = Seq ~ .,
+  data    = data_covar,
+  xval = 1,
+  method = 'anova'
+  )
+
+predictive_of_seq_covars <- names(m_study$variable.importance[0:4])
+predictive_of_seq_covars <- c(predictive_of_seq_covars, c("Sowing.year","Harvest.year"))
+print(m_study$variable.importance[0:10])
+
+```
+Unsurprisingly, the top 4 in terms of variable importance are all variables that are > 90% constant across the studies are included in this list-- We choose to not consider these most predictive covariates. 
+```{r}
+print(predictive_of_seq_covars)
+```
+
+To replace the location information of interest encoded in latitude and longitude, we add climatic zones following (Piltcow et. al) based on latitude, and also continent (related to lat and lon)
+```{r}
+data_covar$climate_zone <- cut(abs(data$Latitude), breaks = c(0, 23.5, 40, 60, 90), 
+                         labels = c("tropical", "subtropical", "temperate", "cold"))
+```
+
+```{r}
+data_covar$continent <- countrycode(sourcevar = data[, "Site.country"],
+                            origin = "country.name",
+                            destination = "continent")
+
+```
+
+we check that these are not highly predictive of Study
+```{r}
+m_study <- rpart(
+  formula = Seq ~ .,
+  data    = data_covar[,!(names(data_covar) %in% predictive_of_seq_covars)],
+  method  = "anova"
+  )
+
+print(m_study$variable.importance)
+
+```
+
+```{r}
+m2 <- rpart(
+  formula = Ln_ratio ~ .,
+  data    = data_covar[,!(names(data_covar) %in% c("Seq", predictive_of_seq_covars))],
+  #data    = data[,!(names(data) %in% c("Seq"))],
+  method  = "anova",
+  xval = 10
+  )
+print(m2$variable.importance[0:5])
+sf_seq_strata <- setNames(data.frame(cbind( m2$where, data_covar$Seq)),  c('strata', 'Seq'))
+print(sf_seq_strata %>% group_by(strata) %>% summarise(n_distinct(Seq)))
+rpart.plot(m2)
+
+```
+
+
+To simplify these trees to me more interpretable, result in fewer strata, and prevent any strata from being composed of observations from a single study, we set the minimum number of observations per leaf based on the 
+the number of observations per paper
+```{r}
+num_study <- data %>% group_by(Seq) %>% summarise(n = n())
+quantile(num_study $n, .9)
+quantile(num_study $n, .95)
+quantile(num_study $n, .99)
+```
+
+We choose minbucket based on the number of observations per paper and choose a slightly lower complexity parameter than the default
+```{r}
+m3 <- rpart(
+  formula = Ln_ratio ~ .,
+  data    = data_covar[,!(names(data_covar) %in% c("Seq", predictive_of_seq_covars))],
+  method  = "anova",
+  cp = .015,
+  minbucket = as.integer(quantile(num_study$n, .95)),
+  xval = 10
+  )
+print(m3$variable.importance[0:5])
+sf_seq_strata <- setNames(data.frame(cbind( m3$where, data_covar$Seq)),  c('strata', 'Seq'))
+print(sf_seq_strata %>% group_by(strata) %>% summarise(n_distinct(Seq)))
+png(file=file.path("results", "figs", "covar_stratification_all_crops_tree.png"),  res = 150, height = 5, width = 5.5, units = 'in',)
+rpart.plot(m3, box.palette = 'RdBu', cex = .7, branch = .5)
+dev.off()
+```
+
+
+```{r}
+df_strata <- setNames(data.frame(cbind( m3$where, data_covar$Ln_ratio)),  c('strata', 'Ln_ratio'))
+write.csv(df_strata , file.path("results", "covar_stratification_all_crops.csv"))
+```
+
+
+
+Compared to actual statistics of staple crops, maize, rice, and wheat are ranked highest in terms of annual followed by soybeans and sorghum, with the others not making the top 10 list. Our distribution does somewhat follow this distribution, but with rice  underepresented, and barley somewhat overrepresented. Thus our first stratification is roughly based on importance w.r.t annual production. 
+```{r}
+data %>% group_by(Crop) %>%
+  summarise(n = n()) %>%
+  arrange(desc(n))
+```
+
+
+get the number of studies per crop
+```{r}
+num_study_crop <- data.frame(data %>%
+    group_by(Crop, Seq) %>%
+   summarise(n = n()) %>%
+   group_by(Crop) %>%
+  summarise(q_99 =quantile(n, .99), q_95 = quantile(n, .95), q_90 =quantile(n, .9), n_unique = n()))
+print(num_study_crop)
+```
+
+```{r}
+crop_list <- unique(data$Crop)
+for (crop_name in crop_list) {
+  print(crop_name)
+  min_bucket = as.integer(num_study_crop$q_95[num_study_crop$Crop == crop_name ])
+  crop_mask <- data_covar$Crop == crop_name
+  df_crop <- data_covar[crop_mask,]
+  m_crop <- rpart(
+    formula = Ln_ratio ~ .,
+    data    = df_crop[,!(names(data_covar) %in% c("Seq", predictive_of_seq_covars))],
+    #data    = data[,!(names(data) %in% c("Seq"))],
+    method  = "anova",
+    minbucket = min_bucket,
+     cp = .015,
+    xval = 10
+    )
+  #print(m_crop$variable.importance[0:5])
+  sf_seq_strata <- setNames(data.frame(cbind( m_crop$where, df_crop$Seq)),  c('strata', 'Seq'))
+  print(sf_seq_strata %>% group_by(strata) %>% summarise(n_distinct(Seq)))
+  png(file=file.path("results","figs", paste("covar_stratification_", crop_name, "_tree.png", sep = '')))
+  rpart.plot(m_crop, box.palette = 'RdBu', cex = .9, branch = .5)
+  dev.off()
+  df_all_crop <- data[crop_mask,]
+  df_strata <- setNames(data.frame(cbind(m_crop$where, df_all_crop$Ln_ratio, df_all_crop$Yield.of.CT, df_all_crop$Yield.of.NT)),  
+                        c('strata', 'Ln_ratio', 'Yield.of.CT', 'Yield.of.NT'))
+  write.csv(df_strata , file.path("results", paste("covar_stratification_", crop_name, ".csv", sep = '')))
+}
+
+```
+
