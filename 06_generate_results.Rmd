@@ -5,6 +5,8 @@ output: html_notebook
 
 ```{r}
 library(ggplot2)
+library(dplyr)
+library(xtable)
 source('automate_estimation.R')
 ```
 
@@ -78,7 +80,17 @@ data$treatment_duration_eq_5 <- factor(data$treatment_duration_eq_5, ordered = T
 ```{r}
 Neyman.CI <- get_neyman_CI_df(data, covariate_col = 'Crop')
 plot_CI_Intervals(Neyman.CI, covariate_col = 'Crop')
-ggsave(paste('./results/figs/CI_all_crops.png')) # save the most revent ggplot (p)
+print(xtable(Neyman.CI, digits=(rep(4, ncol(Neyman.CI)+1))), include.rownames=FALSE)
+ggsave(paste('./results/figs/CI_all_crops.png'), height = 3.5 , width = 6) # save the most revent ggplot (p)
+```
+
+
+```{r}
+#ATE with covariate stratification
+n_total <- sum(Neyman.CI$n)
+(Tau.ATE.Log.Ratio <- sum(Neyman.CI$Mean.Log.Yield.Ratio* Neyman.CI$n/n_total))
+(Var.ATE.Log.Ratio <- sum(Neyman.CI$Var.Log.Yield.Ratio* (Neyman.CI$n/n_total)**2))
+(CI.ATE.Log.Ratio <- c(Tau.ATE.Log.Ratio - qnorm(.975)*Var.ATE.Log.Ratio, Tau.ATE.Log.Ratio + qnorm(.975)*Var.ATE.Log.Ratio))
 ```
 
 ```{r}
@@ -88,7 +100,9 @@ for (crop in crop_list) {
   Neyman.CI <- get_neyman_CI_df(read.csv(paste('./results/covar_stratification_', crop, '.csv', sep = '')), covariate_col = 'strata')
   plot_CI_Intervals(Neyman.CI, covariate_col = 'strata')
   ggsave(paste('./results/figs/CI_stratified_covar_',crop,'_','.png', sep = '')) # save the most recent ggplot (p)
+  print(xtable(Neyman.CI, digits=(rep(4, ncol(Neyman.CI)+1))), include.rownames=FALSE)
 }
+
 ```
 
 ```{r}
@@ -97,6 +111,7 @@ for (pair in mgmt_practice_treatment_pairs) {
   Neyman.CI <- get_neyman_CI_df(data, covariate_col = pair, by_crop = TRUE)
   print(plot_CI_Intervals(Neyman.CI, covariate_col = pair, by_crop = TRUE, scales = 'fixed'))
   ggsave(paste('./results/figs/CI_treatment_',pair,'.png', sep = '')) # save the most recent ggplot (p)
+  print(xtable(Neyman.CI, digits=(rep(4, ncol(Neyman.CI)+1))), include.rownames=FALSE)
 }
 
 ```
@@ -106,6 +121,19 @@ for (dur in treatment_durs) {
   Neyman.CI <- get_neyman_CI_df(data, covariate_col = dur, by_crop = TRUE)
   print(plot_CI_Intervals(Neyman.CI, covariate_col = dur, by_crop = TRUE, scales = 'fixed'))
   ggsave(paste('./results/figs/CI_',dur,'.png', sep = '')) # save the most recent ggplot (p)
+  print(xtable(Neyman.CI, digits=(rep(4, ncol(Neyman.CI)+1))), include.rownames=FALSE)
 }
 
 ```
+
+
+```{r}
+L <- get_basic_causal_results_per_crop(data)
+```
+```{r}
+print(L[[2]])
+df <- L[[1]]
+print(xtable(L[[1]], digits=(rep(4, ncol(L[[1]])+1))), include.rownames=FALSE)
+
+```
+

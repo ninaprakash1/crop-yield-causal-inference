@@ -94,7 +94,8 @@ data_clean$pH..surface.layer. <- as.numeric(data_clean$pH..surface.layer.)
 make_treatment_pairs <- function(df, c_treatment_col, t_treatment_col, new_col,  binary_treatments = c("Yes", "No")) {
   new_col_name <- quo_name(new_col)
   df_new <- df %>%
-    mutate(!!new_col_name := ifelse(.data[[c_treatment_col]] %in% binary_treatments & .data[[t_treatment_col]] %in% binary_treatments,
+    mutate(!!new_col_name := ifelse(.data[[c_treatment_col]] %in% binary_treatments & .data[[t_treatment_col]] %in% 
+                                      binary_treatments & .data[[c_treatment_col]] == .data[[t_treatment_col]],
                                     paste(.data[[c_treatment_col]], .data[[t_treatment_col]]),
                                     NA))
   

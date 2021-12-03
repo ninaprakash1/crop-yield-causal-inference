@@ -12,7 +12,7 @@ library(ggplot2)
 # Reading & Pre-processing Data
 ```{r}
 data<-read.csv("data/Data For R.csv")
-
+data <- subset(data, Outlier_NT ==0 | Outlier_CT == 0) #remove outliers
 #add all columns to convert to factors/numeric
 to_factor_cols <- c("Crop")
 to_numeric_cols <- c("Yield.of.CT", "Yield.of.NT")
@@ -53,6 +53,7 @@ ggplot(data, aes(y=Yield.of.NT - Yield.of.CT, x=Yield.of.CT))+
   geom_smooth(formula = y~x) +
   facet_wrap(~Crop,ncol = 5,  scales = "free")+ 
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ggsave(paste('./results/figs/non_constant_additive.png'))
 ```
 
 If this linear relationship holds, than we would expect a multiplicative treatment effect, and thus log transformation of the ratio will yield a constant additive treatment effect (see Imbens p. 65): 
@@ -61,16 +62,17 @@ $$\log \frac{Y(1)}{Y(0)} =  \log Y(1) - \log Y(0) \sim \log(a) + \log Y(0) - \lo
 Examining the plots below, we see that the log transformation results in something much closer to a constant treatment effect, although we do note that (1) the funnel shaped in both plots indicate that the variance of this estimator is larger for smaller magnitudes of CT and (2) from manitude of the ratios are still quite different for different crop types, so even using this estimator, it would be better to conduct a paired randomized experiment within each strata, and then combine them if we wish. 
 ```{r}
 
-data %>%
-  ggplot( aes(x=Yield.of.CT, y=log.Yield.Ratio))+
-  geom_point(shape = 1, alpha = .5)+
-  geom_smooth(formula = y~x)
+# data %>%
+#   ggplot( aes(x=Yield.of.CT, y=log.Yield.Ratio))+
+#   geom_point(shape = 1, alpha = .5)+
+#   geom_smooth(formula = y~x)
 
 data %>%
   ggplot( aes(x=Yield.of.CT, y=log.Yield.Ratio))+
   geom_point(shape = 1)+
    geom_smooth(formula = y~x) +
   facet_wrap(~Crop,ncol = 5,  scales = "free")
+ggsave(paste('./results/figs/multiplicitive_effect.png'))
 ```
 Thus, our estimator is is the log ratio of the treated to the untreated: $\tau = E[log \frac{Y(1)}{Y(0)}] = E[log Y(1) - log Y(0)]  $
 
